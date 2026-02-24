@@ -244,6 +244,99 @@ class AnophelesHapClustAnalysis(AnophelesHapData, AnophelesSnpData):
 
         return dist, phased_samples, n_snps
 
+    @_check_types
+    @doc(
+        summary="Assign cluster labels to haplotypes within a genomic region.",
+        extended_summary="""
+            Haplotypes are clustered using agglomerative hierarchical clustering
+            on the precomputed pairwise Hamming distance matrix (see
+            :meth:`haplotype_pairwise_distances`). Flat clusters are extracted by
+            cutting the linkage tree at ``distance_threshold`` SNPs. When
+            ``distance_threshold`` is ``None``, all haplotypes are assigned to the
+            same cluster (label ``1``), which is equivalent to performing no
+            clustering. Results are deterministic for a given set of inputs.
+        """,
+        parameters=dict(
+            distance_threshold="""
+                Distance threshold (in number of SNPs) used to extract flat clusters
+                from the linkage tree. Haplotypes whose pairwise distance is less than
+                or equal to this value are grouped into the same cluster. Set to
+                ``None`` to disable clustering (all haplotypes share cluster ``1``).
+            """,
+        ),
+        returns="""
+            A :class:`~pandas.DataFrame` with one row per haplotype, containing the
+            following columns:
+
+            * ``haplotype_id``: a string identifier for each haplotype, formatted as
+              ``"{sample_id}_1"`` and ``"{sample_id}_2"`` for the two haplotypes
+              phased from each sample.
+            * ``sample_id``: the sample from which this haplotype was phased.
+            * ``cluster``: a positive integer cluster label (1-indexed).
+              Haplotypes with the same label belong to the same cluster.
+        """,
+    )
+    def haplotype_cluster_labels(
+        self,
+        region: base_params.regions,
+        analysis: hap_params.analysis = base_params.DEFAULT,
+        sample_sets: Optional[base_params.sample_sets] = None,
+        sample_query: Optional[base_params.sample_query] = None,
+        sample_query_options: Optional[base_params.sample_query_options] = None,
+        cohort_size: Optional[base_params.cohort_size] = None,
+        random_seed: base_params.random_seed = 42,
+        linkage_method: hapclust_params.linkage_method = hapclust_params.linkage_method_default,
+        distance_threshold: Optional[hapclust_params.distance_threshold] = None,
+        chunks: base_params.chunks = base_params.native_chunks,
+        inline_array: base_params.inline_array = base_params.inline_array_default,
+    ) -> pd.DataFrame:
+        from scipy.cluster.hierarchy import fcluster, linkage
+
+        # Retrieve the precomputed (and cached) pairwise distance matrix.
+        # N.B.: dist is in CONDENSED 1-D form (the result of squareform applied
+        # to the square output of _pdist_abs_hamming). phased_samples holds one
+        # sample identifier per sample (not per haplotype).
+        dist, phased_samples, _ = self.haplotype_pairwise_distances(
+            region=region,
+            analysis=analysis,
+            sample_sets=sample_sets,
+            sample_query=sample_query,
+            sample_query_options=sample_query_options,
+            cohort_size=cohort_size,
+            random_seed=random_seed,
+            chunks=chunks,
+            inline_array=inline_array,
+        )
+
+        # Each sample contributes 2 phased haplotypes.
+        n_samples = len(phased_samples)
+        n_haplotypes = 2 * n_samples
+
+        if distance_threshold is None or n_haplotypes < 2:
+            # No threshold requested, or trivially ≤1 haplotype: one cluster.
+            labels = np.ones(n_haplotypes, dtype=np.intp)
+        else:
+            # dist is already condensed — pass directly to linkage().
+            Z = linkage(dist, method=linkage_method)
+            labels = fcluster(Z, t=distance_threshold, criterion="distance").astype(
+                np.intp
+            )
+
+        # Build per-haplotype columns: two haplotypes per sample,
+        # ordered {sample}_1, {sample}_2, {next_sample}_1, ...
+        sample_id_list = list(phased_samples.flat)
+        haplotype_ids = [f"{sid}_{hap}" for sid in sample_id_list for hap in (1, 2)]
+        sample_id_col = [sid for sid in sample_id_list for _ in (1, 2)]
+
+        df = pd.DataFrame(
+            {
+                "haplotype_id": haplotype_ids,
+                "sample_id": sample_id_col,
+                "cluster": list(labels),
+            }
+        )
+        return df
+
     def _haplotype_pairwise_distances(
         self,
         *,
