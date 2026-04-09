@@ -70,9 +70,12 @@ class AnophelesKaryotypeAnalysis(AnophelesSnpData):
     def load_inversion_tags(self, inversion: inversion_param) -> pd.DataFrame:
         self._require_karyotype_analysis()
 
+        filename = self.config.get(
+            "KARYOTYPE_TAG_SNPS_FILENAME", "karyotype_tag_snps.csv"
+        )
         path = (
             f"{self._base_path}/{self._major_version_path}"
-            f"/karyotype/{self._karyotype_analysis}/karyotype_tag_snps.csv"
+            f"/snp_karyotype/{self._karyotype_analysis}/{filename}"
         )
         with self._fs.open(path) as f:
             df_tag_snps = pd.read_csv(f, sep=",")

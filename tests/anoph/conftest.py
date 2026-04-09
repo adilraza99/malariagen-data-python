@@ -1154,7 +1154,10 @@ class Ag3Simulator(AnophelesSimulator):
             "SITE_ANNOTATIONS_ZARR_PATH": "reference/genome/agamp4/Anopheles-gambiae-PEST_SEQANNOTATION_AgamP4.12.zarr",
             "DEFAULT_AIM_ANALYSIS": "20220528",
             "DEFAULT_SITE_FILTERS_ANALYSIS": "dt_20200416",
+            # Simulated placeholder; real value will be set in production config.
             "DEFAULT_KARYOTYPE_ANALYSIS": "20231213",
+            "KARYOTYPE_INVERSIONS": ["2La", "2Rb"],
+            "KARYOTYPE_TAG_SNPS_FILENAME": "karyotype_tag_snps.csv",
             "DEFAULT_COHORTS_ANALYSIS": "20230516",
             "SITE_MASK_IDS": ["gamb_colu_arab", "gamb_colu", "arab"],
             "PHASING_ANALYSIS_IDS": ["gamb_colu_arab", "gamb_colu", "arab"],
@@ -1526,10 +1529,13 @@ class Ag3Simulator(AnophelesSimulator):
 
     def init_karyotype_tags(self):
         analysis = self.config["DEFAULT_KARYOTYPE_ANALYSIS"]
+        inversions = self.config["KARYOTYPE_INVERSIONS"]
+        filename = self.config["KARYOTYPE_TAG_SNPS_FILENAME"]
 
         # Generate tag SNP data using positions from simulated SNP sites.
         tags = []
-        for contig, inversion in [("2R", "2Rb"), ("2L", "2La")]:
+        for inversion in inversions:
+            contig = inversion[:2]
             snp_pos = self.snp_sites[contig]["variants"]["POS"][:]
             snp_alt = self.snp_sites[contig]["variants"]["ALT"][:]
             n_tags = min(20, len(snp_pos))
@@ -1546,9 +1552,7 @@ class Ag3Simulator(AnophelesSimulator):
                 )
 
         df = pd.DataFrame(tags)
-        path = (
-            self.bucket_path / "v3" / "karyotype" / analysis / "karyotype_tag_snps.csv"
-        )
+        path = self.bucket_path / "v3" / "snp_karyotype" / analysis / filename
         path.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(path, index=False)
 
